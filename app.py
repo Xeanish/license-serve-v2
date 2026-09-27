@@ -287,7 +287,125 @@ def list_users():
     rows = conn.execute("SELECT id, email, plan, expires_at, is_active, created_at FROM users").fetchall()
     conn.close()
     return jsonify([dict(r) for r in rows])
+ADMIN_PAGE = """
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+<meta charset="UTF-8">
+<title>XEAN — Admin Panel</title>
+<style>
+body { background:#0d0d0d; color:#fff; font-family: 'Segoe UI', sans-serif; margin:0; padding:30px; }
+h1 { color:#ff4d5a; letter-spacing:3px; }
+.login-box { max-width:340px; margin:100px auto; background:#141414; padding:30px; border-radius:12px; border:1px solid #2a0000; text-align:center; }
+input { width:100%; padding:10px; margin:8px 0; background:#0d0d0d; border:1px solid #e63946; border-radius:6px; color:#fff; box-sizing:border-box; }
+button { padding:10px 20px; background:#e63946; color:#fff; border:none; border-radius:6px; font-weight:bold; cursor:pointer; }
+button:hover { background:#c1121f; }
+table { width:100%; border-collapse:collapse; margin-top:20px; }
+th, td { padding:10px; border-bottom:1px solid #2a0000; text-align:left; font-size:13px; }
+th { color:#ff4d5a; }
+select { padding:6px; background:#0d0d0d; color:#fff; border:1px solid #e63946; border-radius:4px; }
+.badge { padding:3px 8px; border-radius:4px; font-size:11px; font-weight:bold; }
+.badge-active { background:#1a4d2e; color:#4caf50; }
+.badge-none { background:#2a2a2a; color:#888; }
+.stats { display:flex; gap:15px; margin-bottom:20px; }
+.stat-box { background:#141414; padding:15px 25px; border-radius:8px; border:1px solid #2a0000; }
+.stat-box .num { font-size:24px; font-weight:bold; color:#ff4d5a; }
+.stat-box .label { font-size:11px; color:#666; }
+#msg { margin-top:10px; font-size:13px; }
+</style>
+</head>
+<body>
+<div id="loginArea">
+  <div class="login-box">
+    <h1>XEAN ADMIN</h1>
+    <input type="password" id="adminToken" placeholder="Admin Token">
+    <button onclick="doLogin()">GİRİŞ</button>
+    <div id="loginMsg" style="color:#ff4d5a; margin-top:10px; font-size:13px;"></div>
+  </div>
+</div>
 
+<div id="panelArea" style="display:none;">
+  <h1>XEAN — YÖNETİM PANELİ</h1>
+  <div class="stats" id="stats"></div>
+  <table>
+    <thead>
+      <tr><th>Email</th><th>Plan</th><th>Bitiş</th><th>Durum</th><th>Kayıt</th><th>Aksiyon</th></tr>
+    </thead>
+    <tbody id="userTable"></tbody>
+  </table>
+</div>
+
+<script>
+let token = '';
+
+function doLogin() {
+  token = document.getElementById('adminToken').value;
+  fetch('/api/admin/list_users', { headers: { 'X-Admin-Token': token } })
+    .then(res => {
+      if (!res.ok) throw new Error('unauthorized');
+      return res.json();
+    })
+    .then(data => {
+      document.getElementById('loginArea').style.display = 'none';
+      document.getElementById('panelArea').style.display = 'block';
+      renderUsers(data);
+    })
+    .catch(() => {
+      document.getElementById('loginMsg').textContent = 'Hatalı token';
+    });
+}
+
+function renderUsers(users) {
+  const total = users.length;
+  const active = users.filter(u => u.plan).length;
+  document.getElementById('stats').innerHTML = `
+    <div class="stat-box"><div class="num">${total}</div><div class="label">TOPLAM KAYIT</div></div>
+    <div class="stat-box"><div class="num">${active}</div><div class="label">AKTİF ÜYELİK</div></div>
+  `;
+
+  const tbody = document.getElementById('userTable');
+  tbody.innerHTML = '';
+  users.forEach(u => {
+    const tr = document.createElement('tr');
+    const badge = u.plan ? `<span class="badge badge-active">${u.plan}</span>` : `<span class="badge badge-none">Yok</span>`;
+    const expires = u.expires_at ? new Date(u.expires_at).toLocaleDateString('tr-TR') : (u.plan ? 'Sınırsız' : '-');
+    tr.innerHTML = `
+      <td>${u.email}</td>
+      <td>${badge}</td>
+      <td>${expires}</td>
+      <td>${u.is_active ? 'Aktif' : 'Pasif'}</td>
+      <td>${new Date(u.created_at).toLocaleDateString('tr-TR')}</td>
+      <td>
+        <select id="plan-${u.id}">
+          <option value="weekly">Haftalık</option>
+          <option value="monthly">Aylık</option>
+          <option value="lifetime">Lifetime</option>
+        </select>
+        <button onclick="assignPlan('${u.email}', ${u.id})">Ata</button>
+      </td>
+    `;
+    tbody.appendChild(tr);
+  });
+}
+
+function assignPlan(email, id) {
+  const plan = document.getElementById('plan-' + id).value;
+  fetch('/api/admin/assign_plan', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'X-Admin-Token': token },
+    body: JSON.stringify({ email, plan })
+  })
+  .then(res => res.json())
+  .then(() => doLogin());
+}
+</script>
+</body>
+</html>
+"""
+
+@app.route("/admin")
+def admin_page():
+    return ADMIN_PAGE
 init_db()
 
 if __name__ == "__main__":
